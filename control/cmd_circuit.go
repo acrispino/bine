@@ -16,7 +16,7 @@ func (c *Conn) ExtendCircuit(circuitID string, path []string, purpose string) (s
 	if purpose != "" {
 		cmd += " purpose=" + purpose
 	}
-	resp, err := c.SendRequest(cmd)
+	resp, err := c.SendRequest("%s", cmd)
 	if err != nil {
 		return "", err
 	}
@@ -34,5 +34,5 @@ func (c *Conn) CloseCircuit(circuitID string, flags []string) error {
 	for _, flag := range flags {
 		cmd += " " + flag
 	}
-	return c.sendRequestIgnoreResponse(cmd)
+	return c.sendRequestIgnoreResponse("%s", cmd)
 }

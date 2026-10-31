@@ -263,7 +263,7 @@ func (c *Conn) sendSetEvents() error {
 		cmd += " " + string(event)
 	}
 	c.eventListenersLock.RUnlock()
-	return c.sendRequestIgnoreResponse(cmd)
+	return c.sendRequestIgnoreResponse("%s", cmd)
 }
 
 func (c *Conn) relayAsyncEvents(resp *Response) {

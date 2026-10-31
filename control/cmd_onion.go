@@ -164,7 +164,7 @@ func (c *Conn) AddOnion(req *AddOnionRequest) (*AddOnionResponse, error) {
 		cmd += " ClientAuthV3=" + blob
 	}
 	// Invoke and read response
-	resp, err := c.SendRequest(cmd)
+	resp, err := c.SendRequest("%s", cmd)
 	if err != nil {
 		return nil, err
 	}

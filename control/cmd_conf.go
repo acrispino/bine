@@ -23,7 +23,7 @@ func (c *Conn) sendSetConf(cmd string, entries []*KeyVal) error {
 			cmd += "=" + torutil.EscapeSimpleQuotedStringIfNeeded(entry.Val)
 		}
 	}
-	return c.sendRequestIgnoreResponse(cmd)
+	return c.sendRequestIgnoreResponse("%s", cmd)
 }
 
 // GetConf invokes GETCONF and returns the values for the requested keys.
@@ -56,7 +56,7 @@ func (c *Conn) SaveConf(force bool) error {
 	if force {
 		cmd += " FORCE"
 	}
-	return c.sendRequestIgnoreResponse(cmd)
+	return c.sendRequestIgnoreResponse("%s", cmd)
 }
 
 // LoadConf invokes LOADCONF.

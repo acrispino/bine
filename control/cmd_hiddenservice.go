@@ -6,7 +6,7 @@ func (c *Conn) GetHiddenServiceDescriptorAsync(address string, server string) er
 	if server != "" {
 		cmd += " SERVER=" + server
 	}
-	return c.sendRequestIgnoreResponse(cmd)
+	return c.sendRequestIgnoreResponse("%s", cmd)
 }
 
 // PostHiddenServiceDescriptorAsync invokes HSPOST.
@@ -19,5 +19,5 @@ func (c *Conn) PostHiddenServiceDescriptorAsync(desc string, servers []string, a
 		cmd += "HSADDRESS=" + address
 	}
 	cmd += "\r\n" + desc + "\r\n."
-	return c.sendRequestIgnoreResponse(cmd)
+	return c.sendRequestIgnoreResponse("%s", cmd)
 }
