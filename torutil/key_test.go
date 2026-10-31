@@ -11,18 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func genRsa(t *testing.T, bits int) *rsa.PrivateKey {
-	k, e := rsa.GenerateKey(rand.Reader, bits)
-	require.NoError(t, e)
-	return k
-}
-
-func genEd25519(t *testing.T) ed25519.KeyPair {
-	k, e := ed25519.GenerateKey(nil)
-	require.NoError(t, e)
-	return k
-}
-
 func TestOnionServiceIDFromPrivateKey(t *testing.T) {
 	assert := func(key interface{}, shouldPanic bool) {
 		if shouldPanic {
@@ -33,7 +21,7 @@ func TestOnionServiceIDFromPrivateKey(t *testing.T) {
 	}
 	assert(nil, true)
 	assert("bad type", true)
-	assert(genRsa(t, 512), true)
+	assert(rsaKeyWithBitLen(512), true)
 	assert(genRsa(t, 1024), false)
 	assert(genEd25519(t), false)
 }
@@ -48,7 +36,7 @@ func TestOnionServiceIDFromPublicKey(t *testing.T) {
 	}
 	assert(nil, true)
 	assert("bad type", true)
-	assert(genRsa(t, 512).Public(), true)
+	assert(rsaKeyWithBitLen(512).Public(), true)
 	assert(genRsa(t, 1024), true)
 	assert(genRsa(t, 1024).Public(), false)
 	assert(genEd25519(t), true)
@@ -123,4 +111,25 @@ func TestOnionServiceIDFromV3PublicKey(t *testing.T) {
 		_, err = PublicKeyFromV3OnionServiceID(string(badChecksum))
 		require.EqualError(t, err, "Invalid checksum")
 	}
+}
+
+func genEd25519(t *testing.T) ed25519.KeyPair {
+	k, e := ed25519.GenerateKey(nil)
+	require.NoError(t, e)
+	return k
+}
+
+func genRsa(t *testing.T, bits int) *rsa.PrivateKey {
+	k, e := rsa.GenerateKey(rand.Reader, bits)
+	require.NoError(t, e)
+	return k
+}
+
+// rsaKeyWithBitLen returns an RSA private key whose modulus has the given bit
+// length. The key is not usable for cryptography. It exists because
+// rsa.GenerateKey refuses sizes below 1024 bits, but the tests need a key of
+// the wrong size.
+func rsaKeyWithBitLen(bits int) *rsa.PrivateKey {
+	n := new(big.Int).Lsh(big.NewInt(1), uint(bits-1))
+	return &rsa.PrivateKey{PublicKey: rsa.PublicKey{N: n, E: 65537}}
 }
