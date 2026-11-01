@@ -13,18 +13,21 @@ import (
 
 // TestIsolateSocksAuth simply confirms the functionality of IsolateSOCKSAuth,
 // namely that it uses a different circuit for different SOCKS credentials.
+// Conflux is disabled because it can put streams on different circuits even
+// without isolation. That would make the shared-circuit check fail and let the
+// isolation check pass even if the credentials never reached Tor.
 func TestIsolateSocksAuth(t *testing.T) {
 	// Create context w/ no isolate
 	ctx := NewTestContext(t, &tor.StartConf{
 		NoAutoSocksPort: true,
-		ExtraArgs:       []string{"--SocksPort", "auto NoIsolateSOCKSAuth"},
+		ExtraArgs:       []string{"--SocksPort", "auto NoIsolateSOCKSAuth", "--ConfluxEnabled", "0"},
 	})
 	// Make sure it reused the circuit (i.e. only has one) for both separate-auth calls
 	uniqueCircuitIDs := doSeparateAuthHttpCalls(ctx)
 	ctx.Debugf("Unique IDs without isolate: %v", uniqueCircuitIDs)
 	ctx.Require.Len(uniqueCircuitIDs, 1)
 	// Create context w/ isolate
-	ctx = NewTestContext(t, nil)
+	ctx = NewTestContext(t, &tor.StartConf{ExtraArgs: []string{"--ConfluxEnabled", "0"}})
 	// Make sure it made a new circuit (i.e. has two) for each separate-auth call
 	uniqueCircuitIDs = doSeparateAuthHttpCalls(ctx)
 	ctx.Debugf("Unique IDs with isolate: %v", uniqueCircuitIDs)
