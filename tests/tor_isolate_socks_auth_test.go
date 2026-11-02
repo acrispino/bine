@@ -2,7 +2,7 @@ package tests
 
 import (
 	"context"
-	"strconv"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -11,65 +11,80 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// TestIsolateSocksAuth simply confirms the functionality of IsolateSOCKSAuth,
-// namely that it uses a different circuit for different SOCKS credentials.
+// TestIsolateSocksAuth checks that different SOCKS credentials share a circuit
+// only when SOCKS authentication isolation is disabled.
 // Conflux is disabled because it can put streams on different circuits even
 // without isolation. That would make the shared-circuit check fail and let the
 // isolation check pass even if the credentials never reached Tor.
 func TestIsolateSocksAuth(t *testing.T) {
-	// Create context w/ no isolate
-	ctx := NewTestContext(t, &tor.StartConf{
-		NoAutoSocksPort: true,
-		ExtraArgs:       []string{"--SocksPort", "auto NoIsolateSOCKSAuth", "--ConfluxEnabled", "0"},
+	if !torIncludeNetworkTests {
+		t.Skip("Only runs if -tor and -tor.network are set")
+	}
+	t.Run("NoIsolateSOCKSAuth", func(t *testing.T) {
+		ctx := NewTestContext(t, &tor.StartConf{
+			NoAutoSocksPort: true,
+			ExtraArgs:       []string{"--SocksPort", "auto NoIsolateSOCKSAuth", "--ConfluxEnabled", "0"},
+		})
+		t.Cleanup(ctx.Close)
+		circuitIDs := separateAuthStreamCircuitIDs(ctx)
+		ctx.Require.Equal(circuitIDs[0], circuitIDs[1], "different SOCKS credentials must share a circuit with NoIsolateSOCKSAuth")
 	})
-	// Make sure it reused the circuit (i.e. only has one) for both separate-auth calls
-	uniqueCircuitIDs := doSeparateAuthHttpCalls(ctx)
-	ctx.Debugf("Unique IDs without isolate: %v", uniqueCircuitIDs)
-	ctx.Require.Len(uniqueCircuitIDs, 1)
-	// Create context w/ isolate
-	ctx = NewTestContext(t, &tor.StartConf{ExtraArgs: []string{"--ConfluxEnabled", "0"}})
-	// Make sure it made a new circuit (i.e. has two) for each separate-auth call
-	uniqueCircuitIDs = doSeparateAuthHttpCalls(ctx)
-	ctx.Debugf("Unique IDs with isolate: %v", uniqueCircuitIDs)
-	ctx.Require.Len(uniqueCircuitIDs, 2)
+	t.Run("IsolateSOCKSAuth", func(t *testing.T) {
+		ctx := NewTestContext(t, &tor.StartConf{ExtraArgs: []string{"--ConfluxEnabled", "0"}})
+		t.Cleanup(ctx.Close)
+		circuitIDs := separateAuthStreamCircuitIDs(ctx)
+		ctx.Require.NotEqual(circuitIDs[0], circuitIDs[1], "different SOCKS credentials must use different circuits with IsolateSOCKSAuth")
+	})
 }
 
-// Returns the map keyed with unique circuit IDs after second separate-auth HTTP call
-func doSeparateAuthHttpCalls(ctx *TestContext) map[int]struct{} {
-	defer ctx.Close()
+// separateAuthStreamCircuitIDs dials check.torproject.org:443 twice through Tor
+// with different SOCKS credentials and returns the two streams' circuit IDs.
+// It fails the test unless stream-status contains exactly two SUCCEEDED streams
+// to port 443, not counting Tor's own .exit directory streams.
+// Both connections stay open until the subtest ends because stream-status omits
+// closed streams.
+func separateAuthStreamCircuitIDs(ctx *TestContext) []string {
 	enableCtx, enableCancel := context.WithTimeout(ctx, 100*time.Second)
 	defer enableCancel()
 	ctx.Require.NoError(ctx.EnableNetwork(enableCtx, true))
-	// Make HTTP call w/ an auth
-	client := httpClient(ctx, &tor.DialConf{ProxyAuth: &proxy.Auth{"foo", "bar"}})
-	byts := httpGet(ctx, client, "https://check.torproject.org/api/ip")
-	ctx.Debugf("Read bytes: %v", string(byts))
-	// Confirm just size 1
-	ids := uniqueStreamCircuitIDs(ctx)
-	ctx.Require.Len(ids, 1)
-	// Now make call with another auth and just return circuit IDs
-	client = httpClient(ctx, &tor.DialConf{ProxyAuth: &proxy.Auth{"baz", "qux"}})
-	byts = httpGet(ctx, client, "https://check.torproject.org/api/ip")
-	ctx.Debugf("Read bytes: %v", string(byts))
-	return uniqueStreamCircuitIDs(ctx)
-}
 
-// Return each stream circuit as a key of an empty-val map
-func uniqueStreamCircuitIDs(ctx *TestContext) map[int]struct{} {
-	ret := map[int]struct{}{}
+	// The first connection must still be open when stream-status is read.
+	// check.torproject.org closes connections that send no data, so the deadline
+	// covers both dials and should stay short.
+	dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer dialCancel()
+	firstDialer, err := ctx.Dialer(dialCtx, &tor.DialConf{ProxyAuth: &proxy.Auth{User: "foo", Password: "bar"}})
+	ctx.Require.NoError(err)
+	secondDialer, err := ctx.Dialer(dialCtx, &tor.DialConf{ProxyAuth: &proxy.Auth{User: "baz", Password: "qux"}})
+	ctx.Require.NoError(err)
+	for _, dialer := range []*tor.Dialer{firstDialer, secondDialer} {
+		conn, err := dialer.DialContext(dialCtx, "tcp", "check.torproject.org:443")
+		ctx.Require.NoError(err)
+		ctx.Cleanup(func() { conn.Close() })
+	}
+
 	vals, err := ctx.Control.GetInfo("stream-status")
 	ctx.Require.NoError(err)
-	for _, val := range vals {
-		ctx.Require.Equal("stream-status", val.Key)
-		for _, line := range strings.Split(val.Val, "\n") {
-			pieces := strings.Split(strings.TrimSpace(line), " ")
-			if len(pieces) < 3 {
-				continue
-			}
-			i, err := strconv.Atoi(pieces[2])
-			ctx.Require.NoError(err)
-			ret[i] = struct{}{}
+	ctx.Require.Len(vals, 1)
+	ctx.Require.Equal("stream-status", vals[0].Key)
+	raw := vals[0].Val
+	ctx.Logf("stream-status:\n%s", raw)
+	var circuitIDs []string
+	// Tor reports a SOCKS stream's target as the resolved IP once it succeeds,
+	// so the filter matches SUCCEEDED streams on port 443 instead of the hostname.
+	// Tor's directory streams can also use port 443, so hosts ending in .exit are
+	// excluded.
+	for _, line := range strings.Split(raw, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 4 || fields[1] != "SUCCEEDED" {
+			continue
 		}
+		host, port, err := net.SplitHostPort(fields[3])
+		if err != nil || port != "443" || strings.HasSuffix(host, ".exit") {
+			continue
+		}
+		circuitIDs = append(circuitIDs, fields[2])
 	}
-	return ret
+	ctx.Require.Len(circuitIDs, 2, "expected exactly two SOCKS streams; stream-status: %q", raw)
+	return circuitIDs
 }
