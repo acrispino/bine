@@ -18,28 +18,42 @@ func TestDialerSimpleHTTP(t *testing.T) {
 	// IsTor check
 	byts := httpGet(ctx, httpClient, "https://check.torproject.org/api/ip")
 	jsn := map[string]interface{}{}
-	ctx.Require.NoError(json.Unmarshal(byts, &jsn))
-	ctx.Require.True(jsn["IsTor"].(bool))
+	if err := json.Unmarshal(byts, &jsn); err != nil {
+		ctx.Fatalf("Unmarshal: got error %v, want nil", err)
+	}
+	if !jsn["IsTor"].(bool) {
+		ctx.Fatalf("IsTor: got %v, want true", jsn["IsTor"])
+	}
 }
 
 func httpClient(ctx *TestContext, conf *tor.DialConf) *http.Client {
+	ctx.Helper()
 	// 15 seconds max to dial
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer dialCancel()
 	// Make connection
 	dialer, err := ctx.Dialer(dialCtx, conf)
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("Dialer: got error %v, want nil", err)
+	}
 	return &http.Client{Transport: &http.Transport{DialContext: dialer.DialContext}}
 }
 
 func httpGet(ctx *TestContext, client *http.Client, url string) []byte {
-	// We'll give it 30 seconds to respond
-	callCtx, callCancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx.Helper()
+	// The first request to a newly published onion service has taken over 30
+	// seconds on the live Tor network, because the client must fetch the
+	// descriptor and build introduction and rendezvous circuits.
+	callCtx, callCancel := context.WithTimeout(ctx, time.Minute)
 	defer callCancel()
 	resp, err := ctxhttp.Get(callCtx, client, url)
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("GET %q: got error %v, want nil", url, err)
+	}
 	defer resp.Body.Close()
 	respBytes, err := ioutil.ReadAll(resp.Body)
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("ReadAll(%q): got error %v, want nil", url, err)
+	}
 	return respBytes
 }

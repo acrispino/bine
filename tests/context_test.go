@@ -3,12 +3,14 @@ package tests
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cretz/bine/control"
 	"github.com/cretz/bine/tor"
-	"github.com/stretchr/testify/require"
 )
 
 var torEnabled bool
@@ -32,6 +34,7 @@ func TestMain(m *testing.M) {
 }
 
 func GlobalEnabledNetworkContext(t *testing.T) *TestContext {
+	t.Helper()
 	if !torEnabled || !torIncludeNetworkTests {
 		t.Skip("Only runs if -tor and -tor.network are set")
 	}
@@ -41,11 +44,12 @@ func GlobalEnabledNetworkContext(t *testing.T) *TestContext {
 		// 45 second wait for enable network
 		enableCtx, enableCancel := context.WithTimeout(ctx, 45*time.Second)
 		defer enableCancel()
-		ctx.Require.NoError(ctx.EnableNetwork(enableCtx, true))
+		if err := ctx.EnableNetwork(enableCtx, true); err != nil {
+			ctx.Fatalf("EnableNetwork: got error %v, want nil", err)
+		}
 		globalEnabledNetworkContext = ctx
 	} else {
 		globalEnabledNetworkContext.T = t
-		globalEnabledNetworkContext.Require = require.New(t)
 	}
 	return globalEnabledNetworkContext
 }
@@ -54,11 +58,11 @@ type TestContext struct {
 	context.Context
 	*testing.T
 	*tor.Tor
-	Require         *require.Assertions
 	CloseTorOnClose bool
 }
 
 func NewTestContext(t *testing.T, conf *tor.StartConf) *TestContext {
+	t.Helper()
 	if !torEnabled {
 		t.Skip("Only runs if -tor is set")
 	}
@@ -73,7 +77,7 @@ func NewTestContext(t *testing.T, conf *tor.StartConf) *TestContext {
 	} else {
 		conf.ExtraArgs = append(conf.ExtraArgs, "--quiet")
 	}
-	ret := &TestContext{Context: context.Background(), T: t, Require: require.New(t), CloseTorOnClose: true}
+	ret := &TestContext{Context: context.Background(), T: t, CloseTorOnClose: true}
 	// Start tor
 	var err error
 	if ret.Tor, err = tor.Start(ret.Context, conf); err != nil {
@@ -96,4 +100,16 @@ func (t *TestContext) Close() {
 			}
 		}
 	}
+}
+
+func formatKeyVals(entries []*control.KeyVal) string {
+	formatted := make([]string, len(entries))
+	for i, entry := range entries {
+		if entry == nil {
+			formatted[i] = "nil"
+		} else {
+			formatted[i] = fmt.Sprintf("{Key:%q Val:%q ValSetAndEmpty:%t}", entry.Key, entry.Val, entry.ValSetAndEmpty)
+		}
+	}
+	return "[" + strings.Join(formatted, " ") + "]"
 }

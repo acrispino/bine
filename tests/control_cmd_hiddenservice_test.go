@@ -16,11 +16,15 @@ func TestHSFetch(t *testing.T) {
 	eventCh := make(chan control.Event)
 	defer close(eventCh)
 	err := ctx.Control.AddEventListener(eventCh, control.EventCodeHSDescContent)
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("AddEventListener: got error %v, want nil", err)
+	}
 	defer ctx.Control.RemoveEventListener(eventCh, control.EventCodeHSDescContent)
 	// Lookup HS
 	err = ctx.Control.GetHiddenServiceDescriptorAsync(hsFetchOnion, "")
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("GetHiddenServiceDescriptorAsync: got error %v, want nil", err)
+	}
 	// Grab events
 	eventCtx, eventCancel := context.WithTimeout(ctx, 45*time.Second)
 	defer eventCancel()
@@ -28,11 +32,17 @@ func TestHSFetch(t *testing.T) {
 	go func() { errCh <- ctx.Control.HandleEvents(eventCtx) }()
 	select {
 	case <-eventCtx.Done():
-		ctx.Require.NoError(eventCtx.Err())
+		if err := eventCtx.Err(); err != nil {
+			ctx.Fatalf("event context: got error %v, want nil", err)
+		}
 	case err := <-errCh:
-		ctx.Require.NoError(err)
+		if err != nil {
+			ctx.Fatalf("HandleEvents: got error %v, want nil", err)
+		}
 	case event := <-eventCh:
 		hsEvent := event.(*control.HSDescContentEvent)
-		ctx.Require.Equal(hsFetchOnion, hsEvent.Address)
+		if hsEvent.Address != hsFetchOnion {
+			ctx.Fatalf("HSDescContent address: got %q, want %q", hsEvent.Address, hsFetchOnion)
+		}
 	}
 }

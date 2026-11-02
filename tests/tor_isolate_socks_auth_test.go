@@ -27,13 +27,17 @@ func TestIsolateSocksAuth(t *testing.T) {
 		})
 		t.Cleanup(ctx.Close)
 		circuitIDs := separateAuthStreamCircuitIDs(ctx)
-		ctx.Require.Equal(circuitIDs[0], circuitIDs[1], "different SOCKS credentials must share a circuit with NoIsolateSOCKSAuth")
+		if circuitIDs[1] != circuitIDs[0] {
+			ctx.Fatalf("different SOCKS credentials must share a circuit with NoIsolateSOCKSAuth: got %q, want %q", circuitIDs[1], circuitIDs[0])
+		}
 	})
 	t.Run("IsolateSOCKSAuth", func(t *testing.T) {
 		ctx := NewTestContext(t, &tor.StartConf{ExtraArgs: []string{"--ConfluxEnabled", "0"}})
 		t.Cleanup(ctx.Close)
 		circuitIDs := separateAuthStreamCircuitIDs(ctx)
-		ctx.Require.NotEqual(circuitIDs[0], circuitIDs[1], "different SOCKS credentials must use different circuits with IsolateSOCKSAuth")
+		if circuitIDs[1] == circuitIDs[0] {
+			ctx.Fatalf("different SOCKS credentials must use different circuits with IsolateSOCKSAuth: got %q, want a value different from %q", circuitIDs[1], circuitIDs[0])
+		}
 	})
 }
 
@@ -44,9 +48,12 @@ func TestIsolateSocksAuth(t *testing.T) {
 // Both connections stay open until the subtest ends because stream-status omits
 // closed streams.
 func separateAuthStreamCircuitIDs(ctx *TestContext) []string {
+	ctx.Helper()
 	enableCtx, enableCancel := context.WithTimeout(ctx, 100*time.Second)
 	defer enableCancel()
-	ctx.Require.NoError(ctx.EnableNetwork(enableCtx, true))
+	if err := ctx.EnableNetwork(enableCtx, true); err != nil {
+		ctx.Fatalf("EnableNetwork: got error %v, want nil", err)
+	}
 
 	// The first connection must still be open when stream-status is read.
 	// check.torproject.org closes connections that send no data, so the deadline
@@ -54,19 +61,31 @@ func separateAuthStreamCircuitIDs(ctx *TestContext) []string {
 	dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer dialCancel()
 	firstDialer, err := ctx.Dialer(dialCtx, &tor.DialConf{ProxyAuth: &proxy.Auth{User: "foo", Password: "bar"}})
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("first Dialer: got error %v, want nil", err)
+	}
 	secondDialer, err := ctx.Dialer(dialCtx, &tor.DialConf{ProxyAuth: &proxy.Auth{User: "baz", Password: "qux"}})
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("second Dialer: got error %v, want nil", err)
+	}
 	for _, dialer := range []*tor.Dialer{firstDialer, secondDialer} {
 		conn, err := dialer.DialContext(dialCtx, "tcp", "check.torproject.org:443")
-		ctx.Require.NoError(err)
+		if err != nil {
+			ctx.Fatalf("DialContext: got error %v, want nil", err)
+		}
 		ctx.Cleanup(func() { conn.Close() })
 	}
 
 	vals, err := ctx.Control.GetInfo("stream-status")
-	ctx.Require.NoError(err)
-	ctx.Require.Len(vals, 1)
-	ctx.Require.Equal("stream-status", vals[0].Key)
+	if err != nil {
+		ctx.Fatalf("GetInfo(stream-status): got error %v, want nil", err)
+	}
+	if len(vals) != 1 {
+		ctx.Fatalf("GetInfo(stream-status): got length %d, want 1; vals: %s", len(vals), formatKeyVals(vals))
+	}
+	if vals[0].Key != "stream-status" {
+		ctx.Fatalf("GetInfo key: got %q, want %q", vals[0].Key, "stream-status")
+	}
 	raw := vals[0].Val
 	ctx.Logf("stream-status:\n%s", raw)
 	var circuitIDs []string
@@ -85,6 +104,8 @@ func separateAuthStreamCircuitIDs(ctx *TestContext) []string {
 		}
 		circuitIDs = append(circuitIDs, fields[2])
 	}
-	ctx.Require.Len(circuitIDs, 2, "expected exactly two SOCKS streams; stream-status: %q", raw)
+	if len(circuitIDs) != 2 {
+		ctx.Fatalf("expected exactly two SOCKS streams; stream-status: %q; got length %d, want 2", raw, len(circuitIDs))
+	}
 	return circuitIDs
 }

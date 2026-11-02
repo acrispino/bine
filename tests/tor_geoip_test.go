@@ -19,14 +19,26 @@ func TestEmbeddedGeoIPFile(t *testing.T) {
 		"ip-to-country/"+usIpv4,
 		"ip-to-country/"+usIpv6,
 	)
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("GetInfo: got error %v, want nil", err)
+	}
 	vals := map[string]string{}
 	for _, kv := range kv {
 		vals[kv.Key] = kv.Val
 	}
-	ctx.Require.Len(vals, 4)
-	ctx.Require.Equal("1", vals["ip-to-country/ipv4-available"])
-	ctx.Require.Equal("1", vals["ip-to-country/ipv6-available"])
-	ctx.Require.Equal("us", vals["ip-to-country/"+usIpv4])
-	ctx.Require.Equal("us", vals["ip-to-country/"+usIpv6])
+	if len(vals) != 4 {
+		ctx.Fatalf("GetInfo: got length %d, want 4; vals: %v", len(vals), vals)
+	}
+	if vals["ip-to-country/ipv4-available"] != "1" {
+		ctx.Fatalf("IPv4 availability: got %q, want %q", vals["ip-to-country/ipv4-available"], "1")
+	}
+	if vals["ip-to-country/ipv6-available"] != "1" {
+		ctx.Fatalf("IPv6 availability: got %q, want %q", vals["ip-to-country/ipv6-available"], "1")
+	}
+	if vals["ip-to-country/"+usIpv4] != "us" {
+		ctx.Fatalf("country for %q: got %q, want %q", usIpv4, vals["ip-to-country/"+usIpv4], "us")
+	}
+	if vals["ip-to-country/"+usIpv6] != "us" {
+		ctx.Fatalf("country for %q: got %q, want %q", usIpv6, vals["ip-to-country/"+usIpv6], "us")
+	}
 }

@@ -40,13 +40,19 @@ func TestForwardSimpleHTTP(t *testing.T) {
 	defer forwardCancel()
 	// Create an onion service to listen on random port but show as 80
 	onion, err := ctx.Forward(forwardCtx, conf)
-	ctx.Require.NoError(err)
+	if err != nil {
+		ctx.Fatalf("Forward: got error %v, want nil", err)
+	}
 
 	// Check the service ID
-	ctx.Require.Equal(torutil.OnionServiceIDFromPrivateKey(onion.Key), onion.ID)
+	if want := torutil.OnionServiceIDFromPrivateKey(onion.Key); onion.ID != want {
+		ctx.Fatalf("onion ID: got %q, want %q", onion.ID, want)
+	}
 	for _, remotePort := range remotePorts {
 		// Request onion endpoint
 		contents := httpGet(ctx, httpClient, fmt.Sprintf("http://"+onion.ID+".onion:%d/test", remotePort))
-		ctx.Require.Equal("forward response", string(contents))
+		if string(contents) != "forward response" {
+			ctx.Fatalf("response on port %d: got %q, want %q", remotePort, string(contents), "forward response")
+		}
 	}
 }

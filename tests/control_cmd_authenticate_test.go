@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/cretz/bine/tor"
@@ -11,9 +12,16 @@ func TestAuthenticateNull(t *testing.T) {
 	defer ctx.Close()
 	// Verify auth methods before auth
 	info, err := ctx.Control.ProtocolInfo()
-	ctx.Require.NoError(err)
-	ctx.Require.ElementsMatch([]string{"NULL"}, info.AuthMethods)
-	ctx.Require.NoError(ctx.Control.Authenticate(""))
+	if err != nil {
+		ctx.Fatalf("ProtocolInfo: got error %v, want nil", err)
+	}
+	want := []string{"NULL"}
+	if !sameStringElements(want, info.AuthMethods) {
+		ctx.Fatalf("AuthMethods: got %q, want %q (ignoring order)", info.AuthMethods, want)
+	}
+	if err := ctx.Control.Authenticate(""); err != nil {
+		ctx.Fatalf("Authenticate: got error %v, want nil", err)
+	}
 }
 
 func TestAuthenticateSafeCookie(t *testing.T) {
@@ -21,9 +29,16 @@ func TestAuthenticateSafeCookie(t *testing.T) {
 	defer ctx.Close()
 	// Verify auth methods before auth
 	info, err := ctx.Control.ProtocolInfo()
-	ctx.Require.NoError(err)
-	ctx.Require.ElementsMatch([]string{"COOKIE", "SAFECOOKIE"}, info.AuthMethods)
-	ctx.Require.NoError(ctx.Control.Authenticate(""))
+	if err != nil {
+		ctx.Fatalf("ProtocolInfo: got error %v, want nil", err)
+	}
+	want := []string{"COOKIE", "SAFECOOKIE"}
+	if !sameStringElements(want, info.AuthMethods) {
+		ctx.Fatalf("AuthMethods: got %q, want %q (ignoring order)", info.AuthMethods, want)
+	}
+	if err := ctx.Control.Authenticate(""); err != nil {
+		ctx.Fatalf("Authenticate: got error %v, want nil", err)
+	}
 }
 
 func TestAuthenticateHashedPassword(t *testing.T) {
@@ -36,7 +51,21 @@ func TestAuthenticateHashedPassword(t *testing.T) {
 	defer ctx.Close()
 	// Verify auth methods before auth
 	info, err := ctx.Control.ProtocolInfo()
-	ctx.Require.NoError(err)
-	ctx.Require.ElementsMatch([]string{"HASHEDPASSWORD"}, info.AuthMethods)
-	ctx.Require.NoError(ctx.Control.Authenticate("testpass"))
+	if err != nil {
+		ctx.Fatalf("ProtocolInfo: got error %v, want nil", err)
+	}
+	want := []string{"HASHEDPASSWORD"}
+	if !sameStringElements(want, info.AuthMethods) {
+		ctx.Fatalf("AuthMethods: got %q, want %q (ignoring order)", info.AuthMethods, want)
+	}
+	if err := ctx.Control.Authenticate("testpass"); err != nil {
+		ctx.Fatalf("Authenticate: got error %v, want nil", err)
+	}
+}
+
+func sameStringElements(want, got []string) bool {
+	sortedWant, sortedGot := slices.Clone(want), slices.Clone(got)
+	slices.Sort(sortedWant)
+	slices.Sort(sortedGot)
+	return slices.Equal(sortedWant, sortedGot)
 }

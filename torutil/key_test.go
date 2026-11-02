@@ -1,6 +1,7 @@
 package torutil
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -8,15 +9,19 @@ import (
 	"testing"
 
 	"github.com/cretz/bine/torutil/ed25519"
-	"github.com/stretchr/testify/require"
 )
 
 func TestOnionServiceIDFromPrivateKey(t *testing.T) {
 	assert := func(key interface{}, shouldPanic bool) {
+		t.Helper()
 		if shouldPanic {
-			require.Panics(t, func() { OnionServiceIDFromPrivateKey(key) })
+			if panicked := panics(func() { OnionServiceIDFromPrivateKey(key) }); !panicked {
+				t.Fatalf("OnionServiceIDFromPrivateKey(%T) panic: got %v, want true", key, panicked)
+			}
 		} else {
-			require.NotPanics(t, func() { OnionServiceIDFromPrivateKey(key) })
+			if panicked := panics(func() { OnionServiceIDFromPrivateKey(key) }); panicked {
+				t.Fatalf("OnionServiceIDFromPrivateKey(%T) panic: got %v, want false", key, panicked)
+			}
 		}
 	}
 	assert(nil, true)
@@ -28,10 +33,15 @@ func TestOnionServiceIDFromPrivateKey(t *testing.T) {
 
 func TestOnionServiceIDFromPublicKey(t *testing.T) {
 	assert := func(key interface{}, shouldPanic bool) {
+		t.Helper()
 		if shouldPanic {
-			require.Panics(t, func() { OnionServiceIDFromPublicKey(key) })
+			if panicked := panics(func() { OnionServiceIDFromPublicKey(key) }); !panicked {
+				t.Fatalf("OnionServiceIDFromPublicKey(%T) panic: got %v, want true", key, panicked)
+			}
 		} else {
-			require.NotPanics(t, func() { OnionServiceIDFromPublicKey(key) })
+			if panicked := panics(func() { OnionServiceIDFromPublicKey(key) }); panicked {
+				t.Fatalf("OnionServiceIDFromPublicKey(%T) panic: got %v, want false", key, panicked)
+			}
 		}
 	}
 	assert(nil, true)
@@ -67,9 +77,13 @@ func TestOnionServiceIDFromV2PublicKey(t *testing.T) {
 		pubKey.N, _ = pubKey.N.SetString(keyN, 10)
 		matchingID := matchingIDs[i]
 		if matchingID == "" {
-			require.Panics(t, func() { OnionServiceIDFromV2PublicKey(pubKey) })
+			if panicked := panics(func() { OnionServiceIDFromV2PublicKey(pubKey) }); !panicked {
+				t.Fatalf("OnionServiceIDFromV2PublicKey(%v) panic: got %v, want true", pubKey, panicked)
+			}
 		} else {
-			require.Equal(t, matchingID, OnionServiceIDFromV2PublicKey(pubKey))
+			if got := OnionServiceIDFromV2PublicKey(pubKey); got != matchingID {
+				t.Fatalf("OnionServiceIDFromV2PublicKey(%v): got %q, want %q", pubKey, got, matchingID)
+			}
 		}
 	}
 }
@@ -91,38 +105,65 @@ func TestOnionServiceIDFromV3PublicKey(t *testing.T) {
 	}
 	for i, base64Key := range base64Keys {
 		key, err := base64.RawStdEncoding.DecodeString(base64Key)
-		require.NoError(t, err)
+		if err != nil {
+			t.Fatalf("DecodeString(%q): got error %v, want nil", base64Key, err)
+		}
 		pubKey := ed25519.PrivateKey(key).PublicKey()
 		matchingID := matchingIDs[i]
-		require.Equal(t, matchingID, OnionServiceIDFromV3PublicKey(pubKey))
+		if got := OnionServiceIDFromV3PublicKey(pubKey); got != matchingID {
+			t.Fatalf("OnionServiceIDFromV3PublicKey(%x): got %q, want %q", pubKey, got, matchingID)
+		}
 		// Check verify here too
 		derivedPubKey, err := PublicKeyFromV3OnionServiceID(matchingID)
-		require.NoError(t, err)
-		require.Equal(t, pubKey, derivedPubKey)
+		if err != nil {
+			t.Fatalf("PublicKeyFromV3OnionServiceID(%q): got error %v, want nil", matchingID, err)
+		}
+		if !bytes.Equal(pubKey, derivedPubKey) {
+			t.Fatalf("PublicKeyFromV3OnionServiceID(%q): got %x, want %x", matchingID, derivedPubKey, pubKey)
+		}
 		// Let's mangle the matchingID a bit
 		tooLong := matchingID + "ddddd"
 		_, err = PublicKeyFromV3OnionServiceID(tooLong)
-		require.EqualError(t, err, "Invalid id length")
+		if err == nil || err.Error() != "Invalid id length" {
+			t.Fatalf("PublicKeyFromV3OnionServiceID(%q): got error %v, want %q", tooLong, err, "Invalid id length")
+		}
 		badVersion := matchingID[:len(matchingID)-1] + "e"
 		_, err = PublicKeyFromV3OnionServiceID(badVersion)
-		require.EqualError(t, err, "Invalid version")
+		if err == nil || err.Error() != "Invalid version" {
+			t.Fatalf("PublicKeyFromV3OnionServiceID(%q): got error %v, want %q", badVersion, err, "Invalid version")
+		}
 		badChecksum := []byte(matchingID)
 		badChecksum[len(badChecksum)-3] = 'q'
 		_, err = PublicKeyFromV3OnionServiceID(string(badChecksum))
-		require.EqualError(t, err, "Invalid checksum")
+		if err == nil || err.Error() != "Invalid checksum" {
+			t.Fatalf("PublicKeyFromV3OnionServiceID(%q): got error %v, want %q", string(badChecksum), err, "Invalid checksum")
+		}
 	}
 }
 
 func genEd25519(t *testing.T) ed25519.KeyPair {
+	t.Helper()
 	k, e := ed25519.GenerateKey(nil)
-	require.NoError(t, e)
+	if e != nil {
+		t.Fatalf("GenerateKey: got error %v, want nil", e)
+	}
 	return k
 }
 
 func genRsa(t *testing.T, bits int) *rsa.PrivateKey {
+	t.Helper()
 	k, e := rsa.GenerateKey(rand.Reader, bits)
-	require.NoError(t, e)
+	if e != nil {
+		t.Fatalf("GenerateKey(%d): got error %v, want nil", bits, e)
+	}
 	return k
+}
+
+func panics(f func()) (panicked bool) {
+	defer func() { recover() }()
+	panicked = true
+	f()
+	return false
 }
 
 // rsaKeyWithBitLen returns an RSA private key whose modulus has the given bit
